@@ -23,7 +23,7 @@ fi
 # Dependency Check
 check_deps() {
     echo -e "${YLW}########### Checking Dependencies ############${NC}"
-    local deps=("zip" "curl" "git" "make" "python3")
+    local deps=("zip" "curl" "git" "make" "python3" "jq")
     for dep in "${deps[@]}"; do
         if ! command -v "$dep" &> /dev/null; then
             echo -e "${RED}Error: $dep is not installed. Please install it to continue.${NC}"
@@ -42,6 +42,7 @@ anykernel=$HOME/anykernel
 kernel_name="Mimir"
 zip_name="$kernel_name-${DEVICE}-${TM}.zip"
 TC_DIR="${PWD}/tc"
+LOG_FILE="${PWD}/build_log.txt"
 
 # Clang
 export PATH="$TC_DIR/bin:$PATH"
@@ -66,6 +67,7 @@ export KBUILD_BUILD_USER=vhmit
 clean_all() {
     echo -e "${YLW}########### Cleaning Output Directory ############${NC}"
     rm -rf "${objdir}"
+    rm -f "$LOG_FILE"
 }
 
 make_defconfig() {
@@ -91,6 +93,8 @@ compile_headers() {
 compile() {
     cd "${kernel_dir}"
     echo -e "${LGR}########### Compiling kernel ############${NC}"
+    local TEMP_LOG=$(mktemp)
+    set -o pipefail
     make -j$(nproc --all) \
         O=${objdir} \
         ARCH=${ARCH} \
@@ -100,7 +104,21 @@ compile() {
         CROSS_COMPILE=aarch64-linux-gnu- \
         CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
         LLVM=1 \
-        LLVM_IAS=1
+        LLVM_IAS=1 2>&1 | tee "$TEMP_LOG"
+        
+    # # Captures the error status for manual handling if necessary.
+    local exit_status=$?
+    if [ $exit_status -ne 0 ]; then
+        echo -e "${RED}Error: Compilation failed! Generating log...${NC}"
+        mv "$TEMP_LOG" "$LOG_FILE"
+        echo -n "Katbin Log: "
+        jq -n --rawfile c "$LOG_FILE" '{"paste":{"content":$c}}' | curl -sL -d @- 'https://katb.in/api/paste' -H "Content-Type: application/json" | jq -r '"https://katb.in/\(.id)"'
+        exit $exit_status
+    else
+        # If the build was successful, we delete the temporary log without creating the build_log.txt file.
+        rm -f "$TEMP_LOG"
+        echo -e "${LGR}Kernel compiled successfully! No log file needed.${NC}"
+    fi
 }
 
 completion() {
