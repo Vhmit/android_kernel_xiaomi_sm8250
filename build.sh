@@ -23,7 +23,7 @@ fi
 # Dependency Check
 check_deps() {
     echo -e "${YLW}########### Checking Dependencies ############${NC}"
-    local deps=("zip" "curl" "git" "make" "python3" "jq")
+    local deps=("zip" "curl" "git" "make" "python3" "jq" "sha256sum")
     for dep in "${deps[@]}"; do
         if ! command -v "$dep" &> /dev/null; then
             echo -e "${RED}Error: $dep is not installed. Please install it to continue.${NC}"
@@ -159,17 +159,22 @@ completion() {
         echo -e "${LGR}####### Kernel packaged successfully! #######${NC}"
         echo -e "${LGR}#############################################${NC}"
 
+	# Generation SHA256
+        echo -e "${YLW}Generating SHA256 checksum...${NC}"
+        SHA256=$(sha256sum "$zip_name" | awk '{print $1}')
+
 	# Upload to Gofile    
         echo -e "${YLW}Checking Gofile status...${NC}"
         SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name // "store1"')
         echo -e "${YLW}Uploading ZIP to ${SERVER}...${NC}"
         RESPONSE=$(curl -# -L -F "file=@$zip_name" "https://${SERVER}.gofile.io/contents/uploadfile")
 
-        echo -ne "${LGR}Kernel Download Link: ${NC}"
         if echo "$RESPONSE" | jq -e . >/dev/null 2>&1; then
-            echo "$RESPONSE" | jq -r '.data.downloadPage'
+            DOWNLOAD_LINK=$(echo "$RESPONSE" | jq -r '.data.downloadPage')
+            echo -e "${LGR}Download Link: ${NC}${DOWNLOAD_LINK}"
+            echo -e "${YLW}SHA256 Checksum: ${NC}${SHA256}"
         else
-            echo -e "${RED}Upload failed! Response:${NC}"
+            echo -e "${RED}Upload failed! Check the log.${NC}"
             echo "$RESPONSE"
         fi
         
