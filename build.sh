@@ -66,8 +66,7 @@ export KBUILD_BUILD_USER=vhmit
 
 clean_all() {
     echo -e "${YLW}########### Cleaning Output Directory ############${NC}"
-    rm -rf "${objdir}"
-    rm -f "$LOG_FILE"
+    rm -rf "${objdir}" "$LOG_FILE" *.zip
 }
 
 make_defconfig() {
@@ -105,7 +104,7 @@ compile() {
         CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
         LLVM=1 \
         LLVM_IAS=1 2>&1 | tee "$TEMP_LOG"
-        
+
     # # Captures the error status for manual handling if necessary.
     local exit_status=$?
     if [ $exit_status -ne 0 ]; then
@@ -123,7 +122,7 @@ compile() {
 
 completion() {
     LOCAL_BOOT="${objdir}/arch/arm64/boot"
-    
+
     if [[ -f "${LOCAL_BOOT}/Image" ]]; then
         echo -e "${LGR}######### Packaging AnyKernel3 #########${NC}"
 
@@ -143,14 +142,14 @@ completion() {
 
         # # Enter the directory to generate the zip file
         cd "$anykernel"
-        
+
         # # Remove old zip files and create a new one
         find . -name "*.zip" -type f -delete
         zip -r9 AnyKernel.zip * -x .git README.md *placeholder
-        
+
         # # Move to the kernel folder with the final name
         cp AnyKernel.zip "$kernel_dir/$zip_name"
-        
+
         # cleaning
         cd "$kernel_dir"
         rm -rf "$anykernel"
@@ -163,7 +162,7 @@ completion() {
         echo -e "${YLW}Generating SHA256 checksum...${NC}"
         SHA256=$(sha256sum "$zip_name" | awk '{print $1}')
 
-	# Upload to Gofile    
+	# Upload to Gofile
         echo -e "${YLW}Checking Gofile status...${NC}"
         SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name // "store1"')
         echo -e "${YLW}Uploading ZIP to ${SERVER}...${NC}"
@@ -177,7 +176,7 @@ completion() {
             echo -e "${RED}Upload failed! Check the log.${NC}"
             echo "$RESPONSE"
         fi
-        
+
         echo -e "\n"
     fi
 }
@@ -191,11 +190,10 @@ compile
 
 # Only run completion (AnyKernel3) if the -z flag is present
 if [ -f "${objdir}/arch/arm64/boot/Image" ]; then
-    # Compile the headers only if the kernel was successful
-    compile_headers
     if [ "$ZIP_FLAG" == "-z" ]; then
         completion
     else
+        compile_headers
         echo -e "\n${YLW}Info: Flag -z not detected. Compilation finished without generating ZIP.${NC}"
         echo -e "The generated files are located in: ${objdir}/arch/arm64/boot/"
     fi
