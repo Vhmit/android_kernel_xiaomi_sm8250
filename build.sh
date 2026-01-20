@@ -155,13 +155,24 @@ completion() {
         cd "$kernel_dir"
         rm -rf "$anykernel"
 
-	# Upload
         echo -e "${LGR}#############################################${NC}"
         echo -e "${LGR}####### Kernel packaged successfully! #######${NC}"
         echo -e "${LGR}#############################################${NC}"
-    
-        echo -e "${LGR}Sending to temp.sh...${NC}"
-        curl -F "file=@$kernel_dir/$zip_name" https://temp.sh/upload
+
+	# Upload to Gofile    
+        echo -e "${YLW}Checking Gofile status...${NC}"
+        SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name // "store1"')
+        echo -e "${YLW}Uploading ZIP to ${SERVER}...${NC}"
+        RESPONSE=$(curl -# -L -F "file=@$zip_name" "https://${SERVER}.gofile.io/contents/uploadfile")
+
+        echo -ne "${LGR}Kernel Download Link: ${NC}"
+        if echo "$RESPONSE" | jq -e . >/dev/null 2>&1; then
+            echo "$RESPONSE" | jq -r '.data.downloadPage'
+        else
+            echo -e "${RED}Upload failed! Response:${NC}"
+            echo "$RESPONSE"
+        fi
+        
         echo -e "\n"
     fi
 }
