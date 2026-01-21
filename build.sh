@@ -23,7 +23,7 @@ fi
 # Dependency Check
 check_deps() {
     echo -e "${YLW}########### Checking Dependencies ############${NC}"
-    local deps=("zip" "curl" "git" "make" "python3" "jq" "sha256sum")
+    local deps=("zip" "curl" "git" "make" "python3" "sha256sum")
     for dep in "${deps[@]}"; do
         if ! command -v "$dep" &> /dev/null; then
             echo -e "${RED}Error: $dep is not installed. Please install it to continue.${NC}"
@@ -110,8 +110,9 @@ compile() {
     if [ $exit_status -ne 0 ]; then
         echo -e "${RED}Error: Compilation failed! Generating log...${NC}"
         mv "$TEMP_LOG" "$LOG_FILE"
-        echo -n "Katbin Log: "
-        jq -n --rawfile c "$LOG_FILE" '{"paste":{"content":$c}}' | curl -sL -d @- 'https://katb.in/api/paste' -H "Content-Type: application/json" | jq -r '"https://katb.in/\(.id)"'
+        echo -n "Rustbin Log: "
+        RESPONSE=$(curl -s -F "highlight=@$LOG_FILE" https://bin.cyberknight777.dev)
+        [[ "$RESPONSE" == *"bin.cyberknight777.dev"* ]] && echo -e "${LGR}${RESPONSE}${NC}" || echo -e "${RED}Upload Failed! Check the build_log.txt.${NC}"
         exit $exit_status
     else
         # If the build was successful, we delete the temporary log without creating the build_log.txt file.
