@@ -1,0 +1,92 @@
+name: Mimir-Kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      DEVICE: alioth
+      DEVICE_NAME: Poco F3
+      KERNEL_NAME: Mimir Kernel
+
+    steps:
+      - name: Check Out
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+
+      - name: Set Timezone
+        uses: szenius/set-timezone@v1.2
+        with:
+          timezoneLinux: "America/Sao_Paulo"
+
+      - name: Setting up the environment
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y gcc-aarch64-linux-gnu jq zip curl git make python3 perl
+          sudo apt-get clean
+          # clang version info
+          echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> $GITHUB_ENV
+
+      - name: Notify Build Started
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d "parse_mode=markdown" \
+          -d "text=🚀 *New version of Mimir Kernel is compiling!*%0A%0A📦 *Repo:* \`${{ env.REPO_NAME }}\` %0A📱 *Device:* ${{ env.DEVICE_NAME }} (\`${{ env.DEVICE }}\`) %0A🌿 *Branch:* \`${{ github.ref_name }}\` %0A⏳ *Please wait for completion...*" \
+          -d "reply_markup={\"inline_keyboard\":[[{\"text\":\"🔍 View real-time log\",\"url\":\"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}]]}"
+
+      - name: Run build script
+        run: |
+          chmod +x build.sh
+          export GITHUB_REF_NAME=${{ github.ref_name }}
+          ./build.sh ${{ env.DEVICE }} -z
+
+      - name: Send Notification (Success)
+        if: success() && env.ZIP_DOWNLOAD_LINK != ''
+        run: |
+          MESSAGE="✅ *New Mimir Kernel build for ${{ env.DEVICE }} available!*%0A%0A🛠️ *Clang version:* \`${{ env.CLANG_VERSION }}\` %0A⏱️ *Time:* ${{ env.BUILD_DURATION }}%0A🌐 *Server Gofile:* \`${{ env.GOFILE_SERVER }}\` (expiry: 10 days) %0A🔐 *SHA256:* \`${{ env.ZIP_SHA256 }}\`"
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "parse_mode=markdown" \
+            -d "text=$MESSAGE" \
+            -d "reply_markup={\"inline_keyboard\":[[{\"text\":\"📥 Download\",\"url\":\"${{ env.ZIP_DOWNLOAD_LINK }}\"}]]}"
+
+      - name: Send Notification (Failure)
+        if: failure()
+        run: |
+          LOG_URL="${{ env.ERROR_LOG_URL }}"
+          if [ -z "$LOG_URL" ] || [ "$LOG_URL" == "null" ]; then
+            LOG_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+
+          MESSAGE="❌ *Kernel build failed!*%0A🛠️ *Clang version:* \`${{ env.CLANG_VERSION || 'Error' }}\` %0A🆔 *Workflow:* [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "parse_mode=markdown" \
+            -d "disable_web_page_preview=true" \
+            -d "text=$MESSAGE" \
+            -d "reply_markup={\"inline_keyboard\":[[{\"text\":\"📂 View Error Log\",\"url\":\"$LOG_URL\"}]]}"
+
+      - name: Send Notification (Cancelled)
+        if: cancelled()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: markdown
+          disable_web_page_preview: true
+          message: |
+            ⚠️ *Workflow Cancelled!*
+            🆔 *Run:* [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            👤 *Status:* Interrupted by user.
+
+      - name: Cleanup workspace
+        if: always()
+        run: |
+          rm -rf out tc *.zip
