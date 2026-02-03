@@ -23,7 +23,7 @@ fi
 # Dependency Check
 check_deps() {
     echo -e "${YLW}########### Checking Dependencies ############${NC}"
-    local deps=("zip" "curl" "git" "make" "python3" "sha256sum")
+    local deps=("zip" "curl" "git" "make" "python3" "sha256sum" "jq")
     for dep in "${deps[@]}"; do
         if ! command -v "$dep" &> /dev/null; then
             echo -e "${RED}Error: $dep is not installed. Please install it to continue.${NC}"
@@ -44,6 +44,11 @@ zip_name="$kernel_name-${DEVICE}-${TM}.zip"
 TC_DIR="${PWD}/tc"
 LOG_FILE="${PWD}/build_log.txt"
 
+# Export current branch name to GitHub Actions
+if [ ! -z "$GITHUB_ENV" ]; then
+    echo "BUILD_BRANCH=${GITHUB_REF_NAME:-$(git rev-parse --abbrev-ref HEAD)}" >> "$GITHUB_ENV"
+fi
+
 # Clang
 export PATH="$TC_DIR/bin:$PATH"
 if ! [ -d "$TC_DIR" ]; then
@@ -55,7 +60,14 @@ if ! [ -d "$TC_DIR" ]; then
 fi
 
 echo -e "${LGR}######### Clang version #########${NC}"
-$TC_DIR/bin/clang --version
+CLANG_FULL=$($TC_DIR/bin/clang --version | head -n 1)
+VER=$(echo "$CLANG_FULL" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+")
+REV=$(echo "$CLANG_FULL" | grep -oE "based on r[0-9]+")
+
+CLANG_VER="$VER ($REV)"
+
+echo -e "${YLW}Clang version: ${CLANG_VER}${NC}"
+[ ! -z "$GITHUB_ENV" ] && echo "CLANG_VERSION=$CLANG_VER" >> "$GITHUB_ENV"
 
 # Exports
 export CONFIG_FILE="${DEVICE}_defconfig"
@@ -110,9 +122,10 @@ compile() {
     if [ $exit_status -ne 0 ]; then
         echo -e "${RED}Error: Compilation failed! Generating log...${NC}"
         mv "$TEMP_LOG" "$LOG_FILE"
-        echo -n "Rustbin Log: "
+        echo -e "\n${YLW}Rustbin Log: ${NC}"
         RESPONSE=$(curl -s -F "highlight=@$LOG_FILE" https://bin.cyberknight777.dev)
         [[ "$RESPONSE" == *"bin.cyberknight777.dev"* ]] && echo -e "${LGR}${RESPONSE}${NC}" || echo -e "${RED}Upload Failed! Check the build_log.txt.${NC}"
+        [ ! -z "$GITHUB_ENV" ] && echo "ERROR_LOG_URL=$RESPONSE" >> "$GITHUB_ENV"
         exit $exit_status
     else
         # If the build was successful, we delete the temporary log without creating the build_log.txt file.
@@ -162,23 +175,25 @@ completion() {
 	# Generation SHA256
         echo -e "${YLW}Generating SHA256 checksum...${NC}"
         SHA256=$(sha256sum "$zip_name" | awk '{print $1}')
+        [ ! -z "$GITHUB_ENV" ] && echo "ZIP_SHA256=$SHA256" >> "$GITHUB_ENV"
 
-	# Upload to Gofile
+        # Upload to Gofile
         echo -e "${YLW}Checking Gofile status...${NC}"
         SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name // "store1"')
+        [ ! -z "$GITHUB_ENV" ] && echo "GOFILE_SERVER=$SERVER" >> "$GITHUB_ENV"
         echo -e "${YLW}Uploading ZIP to ${SERVER}...${NC}"
         RESPONSE=$(curl -# -L -F "file=@$zip_name" "https://${SERVER}.gofile.io/contents/uploadfile")
 
-        if echo "$RESPONSE" | jq -e . >/dev/null 2>&1; then
+        # Validation
+        if echo "$RESPONSE" | jq -e '.status == "ok"' >/dev/null 2>&1; then
             DOWNLOAD_LINK=$(echo "$RESPONSE" | jq -r '.data.downloadPage')
             echo -e "${LGR}Download Link: ${NC}${DOWNLOAD_LINK}"
             echo -e "${YLW}SHA256 Checksum: ${NC}${SHA256}"
+            [ ! -z "$GITHUB_ENV" ] && echo "ZIP_DOWNLOAD_LINK=$DOWNLOAD_LINK" >> "$GITHUB_ENV"
         else
-            echo -e "${RED}Upload failed! Check the log.${NC}"
-            echo "$RESPONSE"
+            echo -e "${RED}Upload failed!${NC}"
+            [ ! -z "$GITHUB_ENV" ] && echo "ZIP_DOWNLOAD_LINK=" >> "$GITHUB_ENV"
         fi
-
-        echo -e "\n"
     fi
 }
 
@@ -188,6 +203,11 @@ clean_all
 SECONDS=0
 make_defconfig
 compile
+
+# Time build
+DIFF=$SECONDS
+BUILD_TIME="$((DIFF / 60)) minute(s) and $((DIFF % 60)) second(s)"
+[ ! -z "$GITHUB_ENV" ] && echo "BUILD_DURATION=$BUILD_TIME" >> "$GITHUB_ENV"
 
 # Only run completion (AnyKernel3) if the -z flag is present
 if [ -f "${objdir}/arch/arm64/boot/Image" ]; then
@@ -200,11 +220,12 @@ if [ -f "${objdir}/arch/arm64/boot/Image" ]; then
     fi
 
     echo -e "\n${LGR}-------------------------------------------------------"
-    echo -e "Completed in: $((SECONDS / 60)) minute(s) and $((SECONDS % 60)) second(s)!"
+    echo -e "Completed successfully in: $BUILD_TIME"
     echo -e "-------------------------------------------------------${NC}"
 else
     echo -e "\n${RED}#############################################${NC}"
     echo -e "${RED}######## Kernel compilation failed! ########${NC}"
+    echo -e "Elapsed time: $BUILD_TIME"
     echo -e "${RED}#############################################${NC}"
     exit 1
 fi
