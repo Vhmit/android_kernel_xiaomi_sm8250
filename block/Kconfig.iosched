@@ -14,7 +14,7 @@ config IOSCHED_NOOP
 	  the kernel.
 
 config IOSCHED_DEADLINE
-	tristate "Deadline I/O scheduler"
+	tristate "No-op I/O scheduler"
 	default y
 	---help---
 	  The deadline I/O scheduler is simple and compact. It will provide
@@ -49,7 +49,7 @@ choice
 	  block devices.
 
 	config DEFAULT_DEADLINE
-		bool "Deadline" if IOSCHED_DEADLINE=y
+		bool "No-op" if IOSCHED_DEADLINE=y
 
 	config DEFAULT_CFQ
 		bool "CFQ" if IOSCHED_CFQ=y
